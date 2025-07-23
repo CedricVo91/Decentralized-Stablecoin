@@ -115,10 +115,11 @@ contract DSCEngine is ReentrancyGuard {
     * @param amountDscToMint the amount of decentralized stablecoin to mint
     * @notice they must have more collateral than the minimum threshold
     */
+
     function mintDsc(uint256 amountDscToMint) external moreThanZero(amountDscToMint) nonReentrant {
         s_dscMinted[msg.sender] += amountDscToMint;
         // if they minted too much (e.g. $150 DSC, $100 ETH)
-        _revertIfHealthFactorIsBroken(msg.sender); // ?? does this undo the above updated mapping of s_dscMinted?
+        _revertIfHealthFactorIsBroken(msg.sender);
         bool minted = i_dsc.mint(msg.sender, amountDscToMint);
         if (!minted) {
             revert DSCEngine__MintFailed();
@@ -144,18 +145,14 @@ contract DSCEngine is ReentrancyGuard {
         return (totalDscMinted, collateralValueInUsd);
     }
 
-
     function _healthFactor(address user) private view returns (uint256) {
         // total DSC minted
         // total collateral VALUE
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
         // collateralAdjustedForThreshol -> the collateral in usd  that we can mint 1 to 1 for DSC: e.g. if its 100 we can mint 100 dsc or less (depending on how overcollateralized we want to be)
-        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD / LIQUIDATION_PRECISION); // ?? research on why we can have a normal divide here despite the decimals and solidity saying decimals does not work ..also how does the overcollaterilzation of 200% work e.g. // 1000 eth * 50 / 100 = 500 // ???
-        
-        return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted; // ?? do we need the precision as the eth in usd chainlink price feed does not have the same amount of decimals as the dsc token amount?
-
-        // other example of health factor:
-        // $1000 worth of ETH and has 100 DSC -> collateralAdjustedForThreshold = (1000 * 50 / 100) = 500, collaterAdjustedThreshold / 100 DSC -> healthfactor = 5 > 1 
+        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD / LIQUIDATION_PRECISION); // in solidity decimals like 0.5 (i.e. 50% are not allowed) -> we do it by 50 (threshold) divided 100(liq_precision)
+        // careful: ERC20 Tokens - like totalDscMinted - have 18 decimals!
+        return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted; // as both totalDscMinted and collateralAdjustedForT have 10e18 endings i.e. 5000 usd in solidity is 5000*10^18, we need to divide by PRECISION (10^18)
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view { // underscore as its an internal function
@@ -173,15 +170,15 @@ contract DSCEngine is ReentrancyGuard {
         for (uint256 i = 0; i<s_collateralTokens.length; i++) {
             address token = s_collateralTokens[i];
             uint256 amount = s_collateralDeposited[user][token];
-            totalCollateralValueinUsd += getUsdValue(token, amount);
+            totalCollateralValueinUsd += getUsdValue(token, amount); // collateral value has 18 decimals per getUSDValue (see function below)
         }
         return totalCollateralValueinUsd;
     }
 
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (,int256 price,,,) = priceFeed.latestRoundData();
-        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; // ?? check this afternoon why we do that!
+        (,int256 price,,,) = priceFeed.latestRoundData(); // price has 8 decimals per chainlink
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; // amount has 18 decimals (1 ETH has 18 decimals per definition) -> once amount and price both have 18 decimals meaning both are of same magnitude, we can divide one of them by 10e18 (precision) and have our final value with 18 decimals 
     }
 
 
