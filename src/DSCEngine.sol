@@ -52,6 +52,7 @@ contract DSCEngine is ReentrancyGuard {
 
     // Events
     event CollteralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed user,  address indexed token, uint256 indexed amount);
 
     // Modifiers
     modifier moreThanZero(uint256 amount) {
@@ -85,14 +86,24 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     // External Functions
-    function depositCollateralAndMintDsc() external {}
+
+    /**
+    * @param tokenCollateralAddress The address of the token to deposit as collateral
+    * @param amountCollateral The amount of collateral to deposit
+    * @param amountDscToMint The amount of decentralized stablecoin to mint
+    * @notice This function will deposit your collateral and mint tokens
+    */
+    function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToMint) external {
+        depositCollateral(tokenCollateralAddress, amountCollateral);
+        mintDsc(amountDscToMint);
+    }
 
     /**
     * @notice follows CEI
     * @param tokenCollateralAddress The address of the token to deposit as collateral
     * @param amountCollateral The amount of collateral to deposit
     */
-    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) external moreThanZero(amountCollateral) isAllowedToken(tokenCollateralAddress) nonReentrant {
+    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) public moreThanZero(amountCollateral) isAllowedToken(tokenCollateralAddress) nonReentrant {
         // without the transferFrom and just the s_collDeposited mapping update, the user still owns the collateralToken, so he needs to update the actual ERC20 token contract's balances aka actually taking custody
         bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral); // actually transfering the collateral from its token erc20 contract
         // note: we cant have an approve function within the DSCEngine, as the user (msg.sender) needs to approve the DSC to spend token on his behalf, not otherwise for obvious reasons (security, logic)
@@ -106,7 +117,18 @@ contract DSCEngine is ReentrancyGuard {
 
     function redeemCollateralForDsc() external {}
 
-    function redeemCollateral() external {}
+    // In order to redeem collateral: 
+    // 1. health factor must be over 1 AFTER collateral pulled
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) external moreThanZero(amountCollateral) nonReentrant {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
+        //bool success = IERC20(tokenCollateralAddress).transferFrom(address(this), msg.sender, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral); // as the DSCEngine is the contract, it can directly use the transfer function, no need for transferfrom
+        if (!success){
+            revert DSCEngine__TransferFailed();
+        }
+        _revertIfHealthFactorIsBroken(msg.sender); // problem: without a burn dsc step before, we would break our health factor by requesting all the collateral back (but still holding the dsc)
+    }
 
     // 1. Check if the collateral value:
     // - DSC amount, PriceFeed
@@ -116,7 +138,7 @@ contract DSCEngine is ReentrancyGuard {
     * @param amountDscToMint the amount of decentralized stablecoin to mint
     * @notice they must have more collateral than the minimum threshold
     */
-    function mintDsc(uint256 amountDscToMint) external moreThanZero(amountDscToMint) nonReentrant {
+    function mintDsc(uint256 amountDscToMint) public moreThanZero(amountDscToMint) nonReentrant {
         s_dscMinted[msg.sender] += amountDscToMint;
         // if they minted too much (e.g. $150 DSC, $100 ETH)
         _revertIfHealthFactorIsBroken(msg.sender);
@@ -126,7 +148,9 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function burnDsc() external {}
+    function burnDsc(
+        
+    ) external {}
 
     function liquidate() external {}
 

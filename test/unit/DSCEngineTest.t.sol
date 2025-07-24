@@ -21,13 +21,12 @@ contract DSCEngineTest is Test {
     uint256 public constant STARTING_ERC20_Balance = 10 ether;
 
     function setUp() public {
-        deployer = new DeployDSC(); // ?? this set up is already kind of an integration test, right? ask claude
+        deployer = new DeployDSC(); // note: this is more of an integration than unit test.
         (dsc, engine, config) = deployer.run();
         (ethUsdPriceFeed,, weth, , ) = config.activeNetworkConfig();
 
         // the only reason we i.e. the test contract can mint the ERC20 below is because its a mock contract! In real erc20 only owners can usually mint!
-        ERC20Mock(weth).mint(USER, STARTING_ERC20_Balance);
-    
+        ERC20Mock(weth).mint(USER, STARTING_ERC20_Balance);    
     }
 
     // Price Tests
