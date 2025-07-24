@@ -95,6 +95,7 @@ contract DSCEngine is ReentrancyGuard {
     function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) external moreThanZero(amountCollateral) isAllowedToken(tokenCollateralAddress) nonReentrant {
         // without the transferFrom and just the s_collDeposited mapping update, the user still owns the collateralToken, so he needs to update the actual ERC20 token contract's balances aka actually taking custody
         bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral); // actually transfering the collateral from its token erc20 contract
+        // note: we cant have an approve function within the DSCEngine, as the user (msg.sender) needs to approve the DSC to spend token on his behalf, not otherwise for obvious reasons (security, logic)
         if (!success) {
             revert DSCEngine__TransferFailed();
         }
@@ -115,12 +116,11 @@ contract DSCEngine is ReentrancyGuard {
     * @param amountDscToMint the amount of decentralized stablecoin to mint
     * @notice they must have more collateral than the minimum threshold
     */
-
     function mintDsc(uint256 amountDscToMint) external moreThanZero(amountDscToMint) nonReentrant {
         s_dscMinted[msg.sender] += amountDscToMint;
         // if they minted too much (e.g. $150 DSC, $100 ETH)
         _revertIfHealthFactorIsBroken(msg.sender);
-        bool minted = i_dsc.mint(msg.sender, amountDscToMint);
+        bool minted = i_dsc.mint(msg.sender, amountDscToMint); // the mint function of the dsc is called by the engine aka the owner, not by the caller of mintDsc function!
         if (!minted) {
             revert DSCEngine__MintFailed();
         }
@@ -134,11 +134,11 @@ contract DSCEngine is ReentrancyGuard {
 
 
     // Private and Internal View Functions
+    
     /**
     * Returns how closte to liquidation a user is
     * If a user goes below 1, then they can get liquidated
     */
-
     function _getAccountInformation(address user) private view returns(uint256 totalDscMinted, uint256 collateralValueInUsd) {
         totalDscMinted = s_dscMinted[user];
         collateralValueInUsd = getAccountCollateralValueInUsd(user);
@@ -167,7 +167,7 @@ contract DSCEngine is ReentrancyGuard {
     // Public & External View Functions
     function getAccountCollateralValueInUsd(address user) public view returns(uint256 totalCollateralValueinUsd){
         // loop through each collateral token, get the amount they have deposited and map each to pricefeeds
-        for (uint256 i = 0; i<s_collateralTokens.length; i++) {
+        for (uint256 i = 0; i < s_collateralTokens.length; i++) {
             address token = s_collateralTokens[i];
             uint256 amount = s_collateralDeposited[user][token];
             totalCollateralValueinUsd += getUsdValue(token, amount); // collateral value has 18 decimals per getUSDValue (see function below)
