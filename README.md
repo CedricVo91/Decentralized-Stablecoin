@@ -9,4 +9,11 @@
     1. wETH
     2. wBTC
 
+- set health factor if debt is zero (if we havent minted anything we would divide by zero, not possible! account for that!)
+- write more tests and debug my initial issue! 
+- finish the rest
+- repeat the fuzztest logic and how we figured out that we had a division by zero in the healthfactor calculation. it would show the real benefit of fuzztesting: also looking for edge cases that we didnt account for and potential bugs in our code logic (as we had in our division by zero when there is no dsc minted but collateral deposited and redeemed)
+
+1. what are our invariants/properties?
+
 

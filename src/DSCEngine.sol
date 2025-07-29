@@ -68,8 +68,8 @@ contract DSCEngine is ReentrancyGuard {
     modifier isAllowedToken(address token){
         if (s_priceFeeds[token] == address(0)) { // if the token address is not in our pricefeed i.e. it points to the zero address
             revert DSCEngine__TokenAddressNotAllowed();
-            _;
         }
+        _;
     }
 
     // constructor
@@ -85,7 +85,6 @@ contract DSCEngine is ReentrancyGuard {
         }
 
         i_dsc = DecentralizedStableCoin(decentralizedStableCoinAddress); // we will use our DecentralizedStableCoin token contract a lot here, so we initialize it in the constructor.
-        
     }
 
     // External Functions
@@ -114,8 +113,7 @@ contract DSCEngine is ReentrancyGuard {
             revert DSCEngine__TransferFailed();
         }
         s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
-        emit CollteralDeposited(msg.sender, tokenCollateralAddress, amountCollateral); // when we modify state we emit an event
-        
+        emit CollteralDeposited(msg.sender, tokenCollateralAddress, amountCollateral); // when we modify state we emit an event   
     }
 
     /**
@@ -124,7 +122,6 @@ contract DSCEngine is ReentrancyGuard {
     * @param amountDscToBurn The amount of DSC to burn
     * Note this function burns DSC and redeems underlying collateral in one transaction
     */
-
     function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToBurn) external {
         burnDsc(amountDscToBurn);
         redeemCollateral(tokenCollateralAddress, amountCollateral);
@@ -154,12 +151,13 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     function burnDsc(uint256 amount) public moreThanZero(amount)  {
-        s_dscMinted[msg.sender] -= amount;
-        bool success = i_dsc.transferFrom(msg.sender, address(this), amount); // we have to update the dsc ledger so that the user (msg.sender) does not have the dsc anymore, otherwise we would just burn random dsc, decreasing the supply, right?
+        s_dscMinted[msg.sender] -= amount; // -> this means that if just any external user without an amount on the mapping would run an underflow error by design and it would be reverted
+        // the below only works in testing if the external user (msg.sender) approves the dsc engine to transfer his token amount to the engine contract
+        bool success = i_dsc.transferFrom(msg.sender, address(this), amount); // we have to update the dsc ledger so that the user (msg.sender) does not have the dsc anymore, otherwise we would just burn random dsc, decreasing the supply
         if (!success){
             revert DSCEngine.DSCEngine__TransferFailed();
         }
-        i_dsc.burn(amount); // dscengine burns - as the owner of i_dsc - the amount above
+        i_dsc.burn(amount); // dscengine burns - as the owner of i_dsc - the amount above 
         _revertIfHealthFactorIsBroken(msg.sender); // I don't think this will ever hit as we can burn DSC as much as we want
     }
 
@@ -191,7 +189,7 @@ contract DSCEngine is ReentrancyGuard {
         uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATOR_BONUS)/ LIQUIDATION_PRECISION; 
         uint256 totalCollateralToRedeemToLiquidator = tokenAmountFromDebtCovered + bonusCollateral;
         _redeemCollateral(collateral, totalCollateralToRedeemToLiquidator, user, msg.sender);
-        _burnDsc(debtToCover, user, msg.sender);
+        _burnDsc(debtToCover, user, msg.sender); // so here we need an approval for the dsc by the liquidator in a testing scenario as we transfer dsc to burn from the liquidator to the engine (see the burn function logic)
         uint256 endingUserHealthFactor = _healthFactor(user);
         if (endingUserHealthFactor <= startingUserHealthFactor) {
             revert DSCEngine__HealthFactorNotImproved();
@@ -199,8 +197,9 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function getHealthFactor() external view {}
-
+    function getCollateralTokens() external view returns (address[] memory) {
+        return s_collateralTokens;
+    }
 
     // Private and Internal View Functions
     /**
@@ -221,6 +220,7 @@ contract DSCEngine is ReentrancyGuard {
         s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
         emit CollateralRedeemed(from, to, tokenCollateralAddress, amountCollateral);
         //bool success = IERC20(tokenCollateralAddress).transferFrom(address(this), msg.sender, amountCollateral);
+        // no approval needed below as the dsc engine owns its own token and transfers these
         bool success = IERC20(tokenCollateralAddress).transfer(to, amountCollateral); // as the DSCEngine is the contract, it can directly use the transfer function, no need for transferfrom
         if (!success){
             revert DSCEngine__TransferFailed();
@@ -241,6 +241,7 @@ contract DSCEngine is ReentrancyGuard {
         // total DSC minted
         // total collateral VALUE
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
+        if (totalDscMinted == 0) return type(uint256).max; // to prevent the division by zero when there is no dsc debt, my health factor should be infinite, and not cause a division by zero. I discovered this during fuzztesting the redeem collateral function. 
         // collateralAdjustedForThreshol -> the collateral in usd  that we can mint 1 to 1 for DSC: e.g. if its 100 we can mint 100 dsc or less (depending on how overcollateralized we want to be)
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD / LIQUIDATION_PRECISION); // in solidity decimals like 0.5 (i.e. 50% are not allowed) -> we do it by 50 (threshold) divided 100(liq_precision)
         // careful: ERC20 Tokens - like totalDscMinted - have 18 decimals!
@@ -257,6 +258,9 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     // Public & External View Functions
+    function getCollateralBalanceOfUser(address user, address collateral) external view returns (uint256){
+        return s_collateralDeposited[user][collateral];
+    }
 
     function getTokenAmountFromUsd(address token, uint256 usdAmountInWei) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
@@ -284,8 +288,13 @@ contract DSCEngine is ReentrancyGuard {
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION; // amount has 18 decimals (1 ETH has 18 decimals per definition) -> once amount and price both have 18 decimals meaning both are of same magnitude, we can divide one of them by 10e18 (precision) and have our final value with 18 decimals 
     }
 
+    function getHealthFactor(address user) external view returns (uint256) {
+        return _healthFactor(user);
+    }
 
-
+    function getAccountInformation(address user) external view returns (uint256, uint256){
+        return _getAccountInformation(user);
+    }
 
 
 }
