@@ -2,6 +2,7 @@
 
 pragma solidity ^0.8.19;
 
+import {console} from "forge-std/Test.sol";
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -131,6 +132,7 @@ contract DSCEngine is ReentrancyGuard {
     // In order to redeem collateral: 
     // 1. health factor must be over 1 AFTER collateral pulled
     function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) public moreThanZero(amountCollateral) nonReentrant {
+        console.log("this address called the engine's redeemCollateral", msg.sender);
         _redeemCollateral(tokenCollateralAddress, amountCollateral, msg.sender, msg.sender); // from and to are the same address, nice design
         _revertIfHealthFactorIsBroken(msg.sender); // problem: without a burn dsc step before, we would break our health factor by requesting all the collateral back (but still holding the dsc) -> we do that in the combination function
     }
@@ -248,6 +250,14 @@ contract DSCEngine is ReentrancyGuard {
         return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted; // as both totalDscMinted and collateralAdjustedForT have 10e18 endings i.e. 5000 usd in solidity is 5000*10^18, we need to divide by PRECISION (10^18)
     }
 
+    function _calculateHealthFactorFormula(uint256 totalDscMinted, uint256 collateralValueInUsd) private view returns (uint256) {
+        if (totalDscMinted == 0) {
+            return type(uint256).max;
+        }
+        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD / LIQUIDATION_PRECISION);
+        return (collateralAdjustedForThreshold * PRECISION / totalDscMinted) ;
+    }
+
     function _revertIfHealthFactorIsBroken(address user) internal view { // underscore as its an internal function
         // 1. Check health facotr (do they have enough collateral?)
         // 2. Revert if they don't 
@@ -258,6 +268,10 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     // Public & External View Functions
+    function getHealthFactorForHandlerAdjustment(uint256 totalDscMinted, uint256 collateralValueInUsd) external view returns (uint256) {
+        return _calculateHealthFactorFormula(totalDscMinted, collateralValueInUsd);
+    }
+
     function getCollateralBalanceOfUser(address user, address collateral) external view returns (uint256){
         return s_collateralDeposited[user][collateral];
     }
@@ -290,6 +304,10 @@ contract DSCEngine is ReentrancyGuard {
 
     function getHealthFactor(address user) external view returns (uint256) {
         return _healthFactor(user);
+    }
+
+    function getMinHealthFactor() external view returns (uint256) {
+        return MIN_HEALTH_FACTOR;
     }
 
     function getAccountInformation(address user) external view returns (uint256, uint256){

@@ -13,6 +13,8 @@
 - write more tests and debug my initial issue! 
 - finish the rest
 - repeat the fuzztest logic and how we figured out that we had a division by zero in the healthfactor calculation. it would show the real benefit of fuzztesting: also looking for edge cases that we didnt account for and potential bugs in our code logic (as we had in our division by zero when there is no dsc minted but collateral deposited and redeemed)
+- also understand the traces and how they interact with the functions of our code!
+- need to check why my healthcheck fails when we mint several times after depositing collateral through unit testing but also fuzztest handler adjustment ( I get an error "he doesnt get in debugging the fuzz tests handler")
 
 1. what are our invariants/properties?
 

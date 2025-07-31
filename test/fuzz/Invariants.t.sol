@@ -44,7 +44,7 @@ contract Invariants is StdInvariant, Test {
     function invariant_protocolMustHaveMoreValueThanTotalSupply() public view {
         // get the value of all the collateral in the protocol
         // compare it to all the debt (dsc)
-        uint256 totalSupply = dsc.totalSupply();
+        uint256 totalSupply = dsc.totalSupply(); // total supply of the dsc is the dsc that was minted by all the minters
         uint256 totalWethDeposited = IERC20(weth).balanceOf(address(engine)); // IERC20 typecast is an interface typecasting and works for both real and mock tokens
         uint256 totalWbtcDeposited = IERC20(wbtc).balanceOf(address(engine));
 
